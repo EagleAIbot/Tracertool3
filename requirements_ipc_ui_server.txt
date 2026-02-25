@@ -1,0 +1,16 @@
+# IPC UI Server - Minimal Dependencies
+#
+# Purpose-built server for IPC strategy monitoring
+# No Redis or complex infrastructure required
+
+# Web server and WebSocket support
+aiohttp>=3.9.0
+websockets>=12.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# ClickHouse client (for historical predictions only)
+clickhouse-connect>=0.7.0
+
+# That's it! Simple and clean.
