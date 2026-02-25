@@ -1,0 +1,1481 @@
+<!--
+ * © 2025 Ludwig Strydom. All rights reserved.
+ *
+ * This software and its source code are proprietary and confidential.
+ * Unauthorized copying, distribution, or modification of this file, in
+ * whole or in part, without the express written permission of
+ * Ludwig Strydom is strictly prohibited.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BTC/USDT Real-Time Chart</title>
+  <!-- <script src="https://unpkg.com/lightweight-charts@5.0.7/dist/lightweight-charts.standalone.production.js"></script> -->
+  <!-- <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.7/dist/lightweight-charts.standalone.production.js"></script> -->
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.7/dist/lightweight-charts.standalone.development.js"></script>
+
+  <script type="module" src="js/predictor.js"></script>
+  <script type="module" src="js/SimulationDetector.js"></script>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box; /* Prevent width/height overflow from padding/border */
+    }
+    html {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      overflow: hidden; /* Prevent scrollbars on html element */
+      scrollbar-gutter: stable both-edges; /* Reserve space to avoid layout shifts */
+      max-width: 100vw; /* Clamp to viewport to prevent rounding overflow */
+      max-height: 100dvh;
+    }
+
+    /* Hide root scrollbars cross-browser */
+    html, body {
+      -ms-overflow-style: none;     /* IE and old Edge */
+      scrollbar-width: none;        /* Firefox */
+    }
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      display: none;                /* WebKit */
+    }
+
+    /* Simulation control disabled/enabled states */
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background-color: #666 !important;
+      border-color: #666 !important;
+      color: #999 !important;
+    }
+
+    select:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background-color: #333;
+      color: #666;
+      border-color: #555;
+    }
+
+    button:not(:disabled):hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+      transition: all 0.2s ease;
+    }
+
+    select:not(:disabled):hover {
+      border-color: #ff9500;
+      transition: border-color 0.2s ease;
+    }
+
+    body {
+      height: 100dvh; /* Dynamic viewport height avoids UI/banner-induced scrollbars */
+      width: 100vw; /* Lock to viewport width */
+      margin: 0; /* Reset default margin */
+      padding: 0; /* Reset default padding */
+      background-color: #000;
+      color: #ccc;
+      display: flex; /* body is the flex container for panel and chart-area */
+      overflow: clip; /* Stronger than hidden; eliminates scrollbars entirely */
+      font-family: Arial, sans-serif;
+      box-sizing: border-box; /* Ensure padding/border don't add to width/height */
+      position: fixed; /* Prevent page scroll even if children overflow by a pixel */
+      inset: 0; /* top:0; right:0; bottom:0; left:0 */
+      overscroll-behavior: none; /* Prevent overscroll from creating scrollbars */
+      scrollbar-gutter: stable both-edges; /* Avoid transient gutters causing scrollbars */
+      max-width: 100vw; /* Clamp to viewport */
+      max-height: 100dvh;
+    }
+
+    #controls-panel {
+      width: 196px; /* Reduced width by 30% (280px * 0.7) */
+      height: 100%;
+      background-color: #181a1b;
+      padding: 15px; /* Increased padding by 50% (10px * 1.5) */
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 14px; /* Increased gap by ~50% (9px * 1.5 = 13.5px, rounded to 14px) */
+      overflow-y: auto; /* Enable vertical scrolling */
+      overflow-x: hidden; /* Hide horizontal scrollbar */
+      transition: width 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+      z-index: 100;
+      border-right: 1px solid #2a2a2a;
+    }
+
+    /* Hide scrollbar visuals for the panel but keep scrolling */
+    #controls-panel {
+      -ms-overflow-style: none;     /* IE and old Edge */
+      scrollbar-width: none;        /* Firefox */
+    }
+    #controls-panel::-webkit-scrollbar {
+      display: none;                /* WebKit */
+    }
+
+    #controls-panel.hidden {
+      width: 0;
+      padding-left: 0;
+      padding-right: 0;
+      opacity: 0;
+      overflow: hidden;
+      border-right: none;
+    }
+
+    #controls-panel .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px; /* Increased gap by 50% (4px * 1.5) */
+    }
+
+    #controls-panel .inline-group {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #controls-panel .inline-group label {
+      margin-bottom: 0;
+    }
+
+    #controls-panel .inline-group select,
+    #controls-panel .inline-group .checkbox-group {
+      width: 55%; /* Adjust width as needed */
+      justify-content: flex-end; /* Align items to the right */
+    }
+
+    #controls-panel .inline-group .checkbox-group input {
+      margin: 0;
+    }
+
+    #controls-panel label {
+      font-size: 0.6375em; /* Increased font size by 50% (0.425em * 1.5) */
+      margin-bottom: 3px; /* Increased margin by 50% (2px * 1.5) */
+      color: #bbb;
+      font-weight: 500;
+    }
+
+    #controls-panel select,
+    #controls-panel input[type="number"],
+    #controls-panel button {
+      background: #2c2c2c;
+      color: #ddd;
+      border: 1px solid #444;
+      padding: 8px 9px; /* Increased padding by ~50% (5px*1.5=7.5, 6px*1.5=9) */
+      border-radius: 4px; /* Increased border-radius by ~50% (3px * 1.5 = 4.5px, rounded to 4px) */
+      font-size: 0.675em; /* Increased font size by 50% (0.45em * 1.5) */
+      box-sizing: border-box;
+      width: 100%;
+    }
+
+    #controls-panel input[type="number"] {
+        appearance: textfield; /* Standard property */
+        -moz-appearance: textfield; /* Firefox */
+    }
+
+    #controls-panel input[type="number"]::-webkit-outer-spin-button,
+    #controls-panel input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    #controls-panel button {
+      cursor: pointer;
+      background-color: #007bff;
+      border-color: #007bff;
+      color: white;
+      font-weight: 500;
+      transition: background-color 0.2s ease;
+    }
+
+    #controls-panel button:hover {
+      background-color: #0056b3;
+      border-color: #0056b3;
+    }
+
+    #controls-panel .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 6px; /* Increased gap by 50% (4px * 1.5) */
+        padding: 5px 0; /* Increased padding by ~50% (3px * 1.5 = 4.5px, rounded to 5px) */
+    }
+
+    #controls-panel .checkbox-group input[type="checkbox"] {
+        width: auto;
+        margin-right: 4px; /* Increased margin by ~50% (3px * 1.5 = 4.5px, rounded to 4px) */
+        accent-color: #007bff;
+        background: #2c2c2c; /* Ensure consistent background */
+        border: 1px solid #444; /* Ensure consistent border */
+        vertical-align: middle;
+    }
+
+    #controls-panel .checkbox-group label {
+        margin-bottom: 0;
+        color: #ccc;
+        font-weight: normal;
+        font-size: 0.675em; /* Increased font size by 50% (0.45em * 1.5) */
+        vertical-align: middle;
+    }
+
+    #chart-area {
+      flex-grow: 1;
+      height: 100%; /* Fills the fixed-height body */
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-width: 0; /* Added for robust flex sizing */
+      overflow: hidden; /* Contain any child overflow to avoid page scrollbar */
+      contain: layout paint size; /* Prevent subpixel overflow propagation */
+    }
+
+    #toggle-controls-btn {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 101;
+      background: #2c2c2c;
+      color: #ccc;
+      border: 1px solid #444;
+      padding: 6px 10px;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 1.1em;
+      line-height: 1;
+      transition: background-color 0.2s ease, left 0.3s ease;
+    }
+
+    #toggle-controls-btn:hover {
+      background: #3a3a3a;
+    }
+
+    #chart {
+      width: 100%;
+      height: 100%;
+      flex-grow: 1;
+      background-color: #000;
+      min-height: 0; /* Added for robust flex sizing */
+      overflow: hidden; /* Ensure internal content cannot trigger page scroll */
+      contain: layout paint size; /* Isolate layout to avoid rounding-induced scrollbars */
+    }
+
+    /* Indicator Panel - Top Right */
+    #indicator-panel {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 100;
+      background: rgba(30, 30, 30, 0.9);
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 11px;
+      min-width: 140px;
+    }
+
+    #indicator-panel .indicator-title {
+      color: #ff9500;
+      font-weight: bold;
+      font-size: 10px;
+      margin-bottom: 6px;
+      text-align: center;
+      border-bottom: 1px solid #444;
+      padding-bottom: 4px;
+    }
+
+    #indicator-panel .indicator-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 3px 0;
+    }
+
+    #indicator-panel .indicator-label {
+      color: #888;
+    }
+
+    #indicator-panel .indicator-value {
+      font-weight: bold;
+      color: #fff;
+    }
+
+    #indicator-panel .indicator-value.bullish {
+      color: #00ff88;
+    }
+
+    #indicator-panel .indicator-value.bearish {
+      color: #ff4444;
+    }
+
+    #indicator-panel .indicator-value.neutral {
+      color: #ffaa00;
+    }
+
+    #indicator-panel .indicator-updated {
+      font-size: 9px;
+      color: #666;
+      text-align: center;
+      margin-top: 6px;
+      border-top: 1px solid #333;
+      padding-top: 4px;
+    }
+
+    /* AI Prediction Info Panel */
+    #ai-prediction-info {
+      position: absolute;
+      top: 180px;
+      right: 10px;
+      z-index: 100;
+      background: rgba(30, 30, 30, 0.95);
+      border: 1px solid #9333ea;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 11px;
+      min-width: 200px;
+      max-width: 280px;
+    }
+    #ai-prediction-info:empty { display: none; }
+    .ai-prediction-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 6px; }
+    .ai-label { color: #9333ea; font-weight: bold; font-size: 10px; }
+    .ai-direction { font-size: 14px; }
+    .ai-confidence-row { display: flex; justify-content: space-between; margin: 4px 0; font-size: 10px; }
+    .ai-conf-label { color: #888; }
+    .ai-conf-value { color: #fff; font-weight: bold; }
+    .ai-section-title { color: #9333ea; font-size: 9px; margin-top: 8px; margin-bottom: 4px; text-transform: uppercase; }
+    .ai-pattern-tag { display: inline-block; background: rgba(147, 51, 234, 0.3); color: #c084fc; padding: 2px 6px; border-radius: 3px; font-size: 9px; margin: 2px; }
+    .ai-no-pattern { color: #666; font-style: italic; font-size: 9px; }
+    .ai-levels-row { display: flex; justify-content: space-between; font-size: 10px; margin: 2px 0; }
+    .ai-support { color: #22c55e; }
+    .ai-resistance { color: #ef4444; }
+    .ai-trade-quality { margin-top: 8px; padding-top: 6px; border-top: 1px solid #444; }
+    .ai-quality-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: bold; }
+    .ai-quality-badge.strong { background: #22c55e; color: #000; }
+    .ai-quality-badge.good { background: #84cc16; color: #000; }
+    .ai-quality-badge.weak { background: #f59e0b; color: #000; }
+    .ai-quality-badge.avoid { background: #ef4444; color: #fff; }
+  </style>
+</head>
+<body>
+  <div id="controls-panel">
+    <div class="control-group inline-group">
+      <label for="intervalSelector">Interval:</label>
+      <select id="intervalSelector">
+        <option value="60">1m</option>
+        <option value="300" selected>5m</option>
+        <option value="900">15m</option>
+        <option value="3600">1h</option>
+      </select>
+    </div>
+
+    <div class="control-group inline-group">
+        <label for="timeframeSelector">Timeframe:</label>
+        <select id="timeframeSelector">
+          <option value="1" selected>1-Hour</option>
+          <option value="2">2-Hour</option>
+          <option value="4">4-Hour</option>
+        </select>
+    </div>
+
+    <div class="control-group inline-group">
+        <label for="strategySelector">Strategy Instance:</label>
+        <select id="strategySelector">
+          <option value="">None</option>
+        </select>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="modelVersionSelector">Model:</label>
+      <select id="modelVersionSelector">
+        <option value="V1">V1</option>
+        <option value="V2" selected>V2</option>
+        <option value="Alerts_1">Alerts_1</option>
+      </select>
+    </div>
+
+    <!-- Strategy Filters Section -->
+    <div id="strategyFiltersSection" style="border-top: 1px solid #444; margin-top: 10px; padding-top: 10px;">
+      <div class="control-group">
+        <label style="color: #ff9500; font-weight: bold; font-size: 0.7em;">🎯 STRATEGY FILTERS</label>
+      </div>
+
+      <div class="control-group inline-group">
+        <label for="directionFilter">Direction:</label>
+        <select id="directionFilter">
+          <option value="ANY">Any</option>
+          <option value="LONG">LONG</option>
+          <option value="SHORT">SHORT</option>
+        </select>
+      </div>
+
+      <div class="control-group inline-group">
+        <label for="deltaFilter">Delta Min ($):</label>
+        <select id="deltaFilter">
+          <option value="100">$100</option>
+          <option value="200">$200</option>
+          <option value="300">$300</option>
+          <option value="400">$400</option>
+          <option value="500" selected>$500</option>
+          <option value="600">$600</option>
+          <option value="700">$700</option>
+          <option value="800">$800</option>
+          <option value="900">$900</option>
+          <option value="1000">$1000</option>
+        </select>
+      </div>
+
+      <div class="control-group inline-group">
+        <label for="indicatorFilter">Indicator:</label>
+        <select id="indicatorFilter">
+          <option value="ANY">Any</option>
+          <option value="MACD_BULL">MACD Bull</option>
+          <option value="MACD_BEAR">MACD Bear</option>
+          <option value="EMA_BULL">EMA Bull</option>
+          <option value="EMA_BEAR">EMA Bear</option>
+          <option value="RSI_OVERSOLD">RSI &lt; 40</option>
+          <option value="RSI_OVERBOUGHT">RSI &gt; 60</option>
+          <option value="ADX_STRONG">ADX &gt; 25</option>
+        </select>
+      </div>
+
+      <div class="control-group inline-group">
+        <label for="sessionFilter">Session:</label>
+        <select id="sessionFilter">
+          <option value="ANY">Any</option>
+          <option value="IPC_MORNING" selected>IPC 8-11 ET</option>
+          <option value="LATE_MORNING">Late 9-12 ET</option>
+          <option value="AFTERNOON">Afternoon 1-4 ET</option>
+          <option value="FULL_DAY">Full 8-4 ET</option>
+        </select>
+      </div>
+
+      <div class="control-group inline-group">
+        <label for="daysFilter">Backtest:</label>
+        <select id="daysFilter">
+          <option value="7">7 Days</option>
+          <option value="14" selected>14 Days</option>
+          <option value="31">31 Days</option>
+          <option value="90">90 Days</option>
+          <option value="180">All Time</option>
+        </select>
+      </div>
+
+      <div class="control-group inline-group">
+        <label for="tradesPerDayFilter">Trades/Day:</label>
+        <select id="tradesPerDayFilter">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="99">Unlimited</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <button id="armStrategyBtn" style="background-color: #ff9500; border-color: #ff9500; font-weight: bold;">🎯 ARM STRATEGY</button>
+      </div>
+
+      <div id="strategyAlertBanner" class="control-group" style="display: none;">
+        <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border: 2px solid #ff9500; border-radius: 6px; padding: 10px; text-align: center;">
+          <div id="alertStatus" style="font-size: 0.7em; color: #ff9500; font-weight: bold;">⏳ WAITING FOR SIGNAL...</div>
+          <div id="alertDetails" style="font-size: 0.6em; color: #888; margin-top: 6px; line-height: 1.4;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <button id="loadMoreButton">Load More History</button>
+      <div id="loadingIndicator" style="font-size: 0.675em; color: #999; text-align: center; margin-top: 5px; display: none;">Loading...</div>
+    </div>
+
+    <div class="control-group">
+      <button id="showBacktestBtn" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-color: #6366f1; font-size: 0.75em;">📊 Show Backtest Trades</button>
+      <div id="backtestLoadingIndicator" style="font-size: 0.675em; color: #999; text-align: center; margin-top: 5px; display: none;">Loading trades...</div>
+      <label id="ipcContractModeLabel" style="display: none; font-size: 0.7em; margin-top: 8px; cursor: pointer; color: #ff9500;">
+        <input type="checkbox" id="ipcContractModeToggle" style="margin-right: 4px; accent-color: #ff9500;"> IPC Contract Mode
+      </label>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="timezoneSelector">Time Zone:</label>
+      <select id="timezoneSelector">
+        <option value="Local" selected>Local</option>
+        <option value="UTC">UTC</option>
+        <option value="NY">NY</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <button onclick="if(window.chart && window.chart.timeScale) { window.chart.timeScale().fitContent(); }">Reset Zoom</button>
+    </div>
+    <div class="control-group">
+      <button onclick="if(window.chart && window.chart.timeScale) { window.chart.timeScale().scrollToRealTime(); }">Scroll to Latest</button>
+    </div>
+
+    <div class="control-group">
+      <button id="aiAnalysisBtn" style="background: linear-gradient(135deg, #9333ea 0%, #7c3aed 100%); border-color: #9333ea; font-weight: bold;">🤖 AI Analysis</button>
+      <div id="aiAnalysisStatus" style="font-size: 0.675em; color: #999; text-align: center; margin-top: 5px; display: none;">Analyzing...</div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="showPredictionPriceLineCheckbox" style="color: #00FFFF;">Prediction Price</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="showPredictionPriceLineCheckbox">
+      </div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="showBinancePriceLineCheckbox" style="color: #5eff00c7;">Binance Predicted Price</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="showBinancePriceLineCheckbox">
+      </div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="showMapeLowerCheckbox" style="color: pink;">MAPE</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="showMapeLowerCheckbox">
+        <select id="mapeWindowSize" class="small-select" style="width: auto;">
+          <option value="5">5</option>
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="verboseTooltipCheckbox">Verbose Tooltip</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="verboseTooltipCheckbox">
+      </div>
+    </div>
+
+    <!-- Simulation Controls Section (conditionally loaded) -->
+    <div id="simulationSection" style="border-top: 1px solid #444; margin-top: 20px; padding-top: 15px; display: none;">
+      <div class="control-group">
+        <label style="color: #ff9500; font-weight: bold;">🎮 SIMULATION MODE</label>
+      </div>
+
+      <div class="control-group inline-group">
+        <label for="scenarioSelector">Scenario:</label>
+        <select id="scenarioSelector">
+          <option value="">Select scenario...</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <button id="startSimulationBtn" style="background-color: #28a745; border-color: #28a745;">▶️ Start Simulation</button>
+      </div>
+
+      <div class="control-group">
+        <button id="stopSimulationBtn" style="background-color: #dc3545; border-color: #dc3545;" disabled>⏹️ Stop Simulation</button>
+      </div>
+
+      <div class="control-group">
+        <div id="simulationStatus" style="font-size: 0.6em; color: #999; text-align: center; padding: 5px;">
+          Status: Ready
+        </div>
+      </div>
+
+    </div>
+
+    <div class="control-group">
+      <div style="display: none;"></div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="dimCandlesCheckbox">Dim Candles</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="dimCandlesCheckbox">
+      </div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="forceBarAlignmentCheckbox">Force Bar Alignment</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="forceBarAlignmentCheckbox">
+      </div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="useStandardPredictionsCheckbox">Use Standard Predictions</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="useStandardPredictionsCheckbox">
+      </div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="showPredictedLineCheckbox">Show Predicted Line</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="showPredictedLineCheckbox">
+      </div>
+    </div>
+
+    <div class="control-group inline-group">
+      <label for="showClosePriceLineCheckbox">Closed Prices Line:</label>
+      <div class="checkbox-group">
+        <input type="checkbox" id="showClosePriceLineCheckbox">
+        <input type="number" id="lineShiftInput" value="90" style="width: 60px;">
+      </div>
+    </div>
+  </div>
+
+  <div id="chart-area">
+    <button id="toggle-controls-btn">☰</button>
+    <!-- Indicator Panel - Top Right -->
+    <div id="indicator-panel">
+      <div class="indicator-title">📊 INDICATORS</div>
+      <div class="indicator-row">
+        <span class="indicator-label">RSI(14):</span>
+        <span id="ind-rsi" class="indicator-value">--</span>
+      </div>
+      <div class="indicator-row">
+        <span class="indicator-label">MACD:</span>
+        <span id="ind-macd" class="indicator-value">--</span>
+      </div>
+      <div class="indicator-row">
+        <span class="indicator-label">EMA 9/21:</span>
+        <span id="ind-ema" class="indicator-value">--</span>
+      </div>
+      <div class="indicator-row">
+        <span class="indicator-label">ADX(14):</span>
+        <span id="ind-adx" class="indicator-value">--</span>
+      </div>
+      <div class="indicator-updated" id="ind-updated">Updated: --</div>
+    </div>
+
+    <!-- AI Full TA Prediction Panel - Below Indicator Panel -->
+    <div id="ai-prediction-info">
+      <!-- Content populated by AIChartAnalysis.updatePredictionInfo() -->
+    </div>
+
+    <div id="chart"></div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const controlsPanel = document.getElementById('controls-panel');
+      const toggleButton = document.getElementById('toggle-controls-btn');
+      const chartElement = document.getElementById('chart');
+      const chartAreaElement = document.getElementById('chart-area');
+
+      let resizeRetryTimeout = null;
+
+      const resizeChart = (attempt = 1) => {
+        if (resizeRetryTimeout) {
+          clearTimeout(resizeRetryTimeout);
+          resizeRetryTimeout = null;
+        }
+
+        if (!chartElement || !chartAreaElement) {
+          console.error('#chart or #chart-area element not found for resize.');
+          return;
+        }
+
+        if (!window.chart || typeof window.chart.resize !== 'function') {
+          console.warn(`window.chart not ready or resize function unavailable (attempt ${attempt}). Retrying shortly...`);
+          if (attempt < 10) { // Limit retries
+            resizeRetryTimeout = setTimeout(() => resizeChart(attempt + 1), 200);
+          }
+          return;
+        }
+
+        const bodyWidth = document.body.offsetWidth;
+        const chartAreaWidth = chartAreaElement.offsetWidth;
+        const chartDivWidth = chartElement.offsetWidth;
+        const chartDivHeight = chartElement.offsetHeight;
+
+
+        if (chartDivWidth > 0 && chartDivHeight > 0) {
+          window.chart.resize(chartDivWidth, chartDivHeight);
+        } else {
+          console.warn('ChartDiv has zero width or height. Resize skipped. CSS layout issue likely.');
+          // If chart area has width but chart div doesn't, it's more specific
+          if (chartAreaWidth > 0 && chartDivWidth === 0) {
+            console.warn('Specific: ChartArea has width, but ChartDiv does not. Check ChartDiv CSS (e.g., width: 100%).');
+          }
+          // Schedule another attempt if dimensions are still zero, as layout might still be settling
+          if (attempt < 15 && (chartDivWidth === 0 || chartDivHeight === 0)) { // More attempts for this specific case
+             resizeRetryTimeout = setTimeout(() => resizeChart(attempt + 1), 250 + attempt * 50); // Increasingly longer delay
+          }
+        }
+      };
+
+      if (toggleButton && controlsPanel) {
+        toggleButton.addEventListener('click', () => {
+          controlsPanel.classList.toggle('hidden');
+          const isHidden = controlsPanel.classList.contains('hidden');
+          toggleButton.textContent = isHidden ? '☰' : '✕';
+
+          // Wait for panel animation to complete before resizing chart
+          setTimeout(() => {
+            console.log('Resizing chart after panel toggle.');
+            resizeChart();
+          }, 350); // Panel transition is 0.3s
+        });
+      }
+
+      window.addEventListener('resize', () => {
+        resizeChart();
+      });
+
+      // Event-driven resize once the chart instance is created by ChartManager.initialize()
+      document.addEventListener('chart:ready', () => {
+        console.log('Resizing chart after chart:ready event.');
+        resizeChart();
+      });
+
+      // No fixed initial timeout: we wait for chart:ready to avoid early warnings
+
+      // ============================================
+      // INDICATOR PANEL UPDATE LOGIC
+      // ============================================
+      async function updateIndicatorPanel() {
+        try {
+          // Fetch 1H candles for indicator calculation
+          const res = await fetch('/api/binance-klines?symbol=BTCUSDT&interval=1h&limit=100');
+          if (!res.ok) throw new Error('Failed to fetch candles');
+          const data = await res.json();
+
+          if (!Array.isArray(data) || data.length < 30) return;
+
+          const closes = data.map(d => +d[4]);
+          const highs = data.map(d => +d[2]);
+          const lows = data.map(d => +d[3]);
+
+          // Calculate RSI
+          const rsi = calculateRSI(closes, 14);
+
+          // Calculate MACD
+          const macdHist = calculateMACDHistogram(closes);
+
+          // Calculate EMAs
+          const ema9 = calculateEMA(closes, 9);
+          const ema21 = calculateEMA(closes, 21);
+
+          // Calculate ADX (simplified)
+          const adx = calculateADX(highs, lows, closes, 14);
+
+          // Update UI
+          const rsiEl = document.getElementById('ind-rsi');
+          const macdEl = document.getElementById('ind-macd');
+          const emaEl = document.getElementById('ind-ema');
+          const adxEl = document.getElementById('ind-adx');
+          const updatedEl = document.getElementById('ind-updated');
+
+          if (rsiEl) {
+            rsiEl.textContent = rsi ? rsi.toFixed(1) : '--';
+            rsiEl.className = 'indicator-value ' + (rsi < 40 ? 'bearish' : rsi > 60 ? 'bullish' : 'neutral');
+          }
+
+          if (macdEl) {
+            const macdVal = macdHist ? macdHist.toFixed(0) : '--';
+            macdEl.textContent = macdHist > 0 ? '+' + macdVal : macdVal;
+            macdEl.className = 'indicator-value ' + (macdHist > 0 ? 'bullish' : macdHist < 0 ? 'bearish' : 'neutral');
+          }
+
+          if (emaEl && ema9 && ema21) {
+            const emaTrend = ema9 > ema21 ? '↑ Bull' : '↓ Bear';
+            emaEl.textContent = emaTrend;
+            emaEl.className = 'indicator-value ' + (ema9 > ema21 ? 'bullish' : 'bearish');
+          }
+
+          if (adxEl) {
+            adxEl.textContent = adx ? adx.toFixed(1) : '--';
+            adxEl.className = 'indicator-value ' + (adx > 25 ? 'bullish' : 'neutral');
+          }
+
+          if (updatedEl) {
+            const now = new Date();
+            updatedEl.textContent = 'Updated: ' + now.toLocaleTimeString();
+          }
+
+        } catch (err) {
+          console.warn('Failed to update indicators:', err.message);
+        }
+      }
+
+      // Indicator calculation functions
+      // ============================================
+      // INDICATOR CALCULATIONS - EXACT MATCH TO ORACLE API (predictions-api.cjs)
+      // ============================================
+
+      // EMA - Exponential Moving Average (matches Oracle API exactly)
+      function calculateEMAArray(closes, period) {
+        const result = [];
+        const multiplier = 2 / (period + 1);
+        let ema = null;
+
+        for (let i = 0; i < closes.length; i++) {
+          if (i < period - 1) {
+            result.push(null);
+          } else if (i === period - 1) {
+            // First EMA is SMA
+            const sum = closes.slice(0, period).reduce((a, b) => a + b, 0);
+            ema = sum / period;
+            result.push(ema);
+          } else {
+            ema = (closes[i] - ema) * multiplier + ema;
+            result.push(ema);
+          }
+        }
+        return result;
+      }
+
+      // Get last valid EMA value
+      function calculateEMA(data, period) {
+        const emaArray = calculateEMAArray(data, period);
+        for (let i = emaArray.length - 1; i >= 0; i--) {
+          if (emaArray[i] !== null) return emaArray[i];
+        }
+        return null;
+      }
+
+      // RSI - Relative Strength Index (matches Oracle API exactly)
+      function calculateRSI(closes, period) {
+        if (closes.length < period + 1) return null;
+
+        const gains = [];
+        const losses = [];
+
+        for (let i = 0; i < closes.length; i++) {
+          if (i === 0) {
+            gains.push(0);
+            losses.push(0);
+          } else {
+            const change = closes[i] - closes[i - 1];
+            gains.push(change > 0 ? change : 0);
+            losses.push(change < 0 ? Math.abs(change) : 0);
+          }
+        }
+
+        // Use simple average for the last period (matches Oracle simplified approach)
+        const lastIdx = closes.length - 1;
+        const avgGain = gains.slice(lastIdx - period + 1, lastIdx + 1).reduce((a, b) => a + b, 0) / period;
+        const avgLoss = losses.slice(lastIdx - period + 1, lastIdx + 1).reduce((a, b) => a + b, 0) / period;
+
+        if (avgLoss === 0) return 100;
+        const rs = avgGain / avgLoss;
+        return 100 - (100 / (1 + rs));
+      }
+
+      // MACD Histogram (matches Oracle API exactly)
+      function calculateMACDHistogram(closes) {
+        if (closes.length < 35) return null;
+
+        const fastEMA = calculateEMAArray(closes, 12);
+        const slowEMA = calculateEMAArray(closes, 26);
+
+        // Build MACD line
+        const macdLine = fastEMA.map((fast, i) => {
+          if (fast === null || slowEMA[i] === null) return null;
+          return fast - slowEMA[i];
+        });
+
+        // Get valid MACD values for signal calculation
+        const validMacd = macdLine.filter(v => v !== null);
+        if (validMacd.length < 9) return null;
+
+        const signalEMA = calculateEMAArray(validMacd, 9);
+
+        // Get last valid values
+        const lastMacd = validMacd[validMacd.length - 1];
+        const lastSignal = signalEMA[signalEMA.length - 1];
+
+        if (lastSignal === null) return null;
+        return lastMacd - lastSignal;
+      }
+
+      // ATR - Average True Range (needed for ADX)
+      function calculateATR(highs, lows, closes, period) {
+        const result = [];
+        const trueRanges = [];
+
+        for (let i = 0; i < closes.length; i++) {
+          if (i === 0) {
+            trueRanges.push(highs[i] - lows[i]);
+            result.push(null);
+          } else {
+            const tr = Math.max(
+              highs[i] - lows[i],
+              Math.abs(highs[i] - closes[i - 1]),
+              Math.abs(lows[i] - closes[i - 1])
+            );
+            trueRanges.push(tr);
+
+            if (i < period) {
+              result.push(null);
+            } else if (i === period) {
+              result.push(trueRanges.slice(0, period + 1).reduce((a, b) => a + b, 0) / (period + 1));
+            } else {
+              result.push((result[i - 1] * (period - 1) + tr) / period);
+            }
+          }
+        }
+        return result;
+      }
+
+      // ADX - Average Directional Index (matches Oracle API exactly)
+      function calculateADX(highs, lows, closes, period) {
+        if (closes.length < period * 2) return null;
+
+        const atr = calculateATR(highs, lows, closes, period);
+        const plusDM = [];
+        const minusDM = [];
+
+        for (let i = 0; i < closes.length; i++) {
+          if (i === 0) {
+            plusDM.push(0);
+            minusDM.push(0);
+          } else {
+            const upMove = highs[i] - highs[i - 1];
+            const downMove = lows[i - 1] - lows[i];
+            plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+            minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+          }
+        }
+
+        // Smooth DM
+        const smoothPlusDM = calculateEMAArray(plusDM, period);
+        const smoothMinusDM = calculateEMAArray(minusDM, period);
+
+        // Calculate DX values
+        const dx = [];
+        for (let i = 0; i < closes.length; i++) {
+          if (atr[i] === null || smoothPlusDM[i] === null) {
+            dx.push(null);
+          } else {
+            const pdi = atr[i] > 0 ? (smoothPlusDM[i] / atr[i]) * 100 : 0;
+            const mdi = atr[i] > 0 ? (smoothMinusDM[i] / atr[i]) * 100 : 0;
+            const diSum = pdi + mdi;
+            dx.push(diSum > 0 ? (Math.abs(pdi - mdi) / diSum) * 100 : 0);
+          }
+        }
+
+        // ADX is smoothed DX
+        const validDx = dx.filter(v => v !== null);
+        if (validDx.length < period) return null;
+
+        const adxArray = calculateEMAArray(validDx, period);
+        return adxArray[adxArray.length - 1];
+      }
+
+      // Update indicators on load and every 60 seconds
+      updateIndicatorPanel();
+      setInterval(updateIndicatorPanel, 60000);
+
+      // ============================================
+      // STRATEGY FILTERS LOGIC
+      // ============================================
+      const strategyFilters = {
+        armed: false,
+        direction: 'ANY',
+        delta: 500,
+        indicator: 'ANY',
+        session: 'IPC_MORNING',
+        signalHistory: []
+      };
+
+      // IPC Contract Mode state - when true, shows dollar P&L with contracts; when false (default), shows percentage
+      let ipcContractMode = false;
+      let lastBacktestStats = null;  // Store stats for mode toggle
+
+      // Parse URL params for strategy pre-load from Backtest Hub
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has('direction')) {
+        const dir = urlParams.get('direction').toUpperCase();
+        if (['LONG', 'SHORT', 'ANY'].includes(dir)) {
+          strategyFilters.direction = dir;
+          document.getElementById('directionFilter').value = dir;
+        }
+      }
+      if (urlParams.has('delta')) {
+        const delta = parseInt(urlParams.get('delta'));
+        // Accept any delta value >= 100 (strategies can have 600, 800, 1000+ deltas)
+        if (delta >= 100) {
+          strategyFilters.delta = delta;
+          // Set to closest valid dropdown value, or keep as is if valid
+          const validDeltas = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
+          const closestDelta = validDeltas.includes(delta) ? delta : validDeltas.reduce((prev, curr) =>
+            Math.abs(curr - delta) < Math.abs(prev - delta) ? curr : prev
+          );
+          document.getElementById('deltaFilter').value = closestDelta.toString();
+        }
+      }
+      if (urlParams.has('indicator')) {
+        const ind = urlParams.get('indicator').toUpperCase();
+        const validIndicators = ['ANY', 'MACD_BULL', 'MACD_BEAR', 'EMA_BULL', 'EMA_BEAR', 'RSI_OVERSOLD', 'RSI_OVERBOUGHT', 'ADX_STRONG'];
+        if (validIndicators.includes(ind)) {
+          strategyFilters.indicator = ind;
+          document.getElementById('indicatorFilter').value = ind;
+        }
+      }
+      if (urlParams.has('session')) {
+        const sess = urlParams.get('session').toUpperCase();
+        const validSessions = ['ANY', 'IPC_MORNING', 'LATE_MORNING', 'AFTERNOON', 'FULL_DAY'];
+        if (validSessions.includes(sess)) {
+          strategyFilters.session = sess;
+          document.getElementById('sessionFilter').value = sess;
+        }
+      }
+      if (urlParams.has('timeframe')) {
+        const tf = urlParams.get('timeframe');
+        if (['1', '2', '4'].includes(tf)) {
+          const timeframeSelector = document.getElementById('timeframeSelector');
+          if (timeframeSelector) {
+            timeframeSelector.value = tf;
+            // Dispatch change event to trigger data reload with new timeframe
+            timeframeSelector.dispatchEvent(new Event('change'));
+          }
+        }
+      }
+      if (urlParams.has('model')) {
+        const model = urlParams.get('model').toUpperCase();
+        if (['V1', 'V2', 'V4', 'ALERTS_1'].includes(model)) {
+          const modelSelector = document.getElementById('modelVersionSelector');
+          if (modelSelector) {
+            modelSelector.value = model;
+            // Dispatch change event to trigger data reload with new model
+            modelSelector.dispatchEvent(new Event('change'));
+          }
+        }
+      }
+      if (urlParams.has('days')) {
+        const days = urlParams.get('days');
+        if (['7', '14', '31', '90', '180'].includes(days)) {
+          document.getElementById('daysFilter').value = days;
+        }
+      }
+
+      // Auto-arm if URL has autoarm=true
+      if (urlParams.get('autoarm') === 'true') {
+        setTimeout(() => {
+          document.getElementById('armStrategyBtn')?.click();
+        }, 1500);
+      }
+
+      // ============================================
+      // LOAD HISTORICAL BACKTEST TRADES
+      // ============================================
+      // Fetch and display historical trades based on current strategy filters
+      async function loadBacktestTrades() {
+        const loadingIndicator = document.getElementById('backtestLoadingIndicator');
+        const showBtn = document.getElementById('showBacktestBtn');
+
+        // Read current filter values from the UI
+        const currentDirection = document.getElementById('directionFilter')?.value || 'ANY';
+        const currentDelta = document.getElementById('deltaFilter')?.value || '500';
+        const currentIndicator = document.getElementById('indicatorFilter')?.value || 'ANY';
+        const currentSession = document.getElementById('sessionFilter')?.value || 'IPC_MORNING';
+        const currentTimeframe = document.getElementById('timeframeSelector')?.value || '1';
+        const currentDays = document.getElementById('daysFilter')?.value || '14';
+        const currentTradesPerDay = document.getElementById('tradesPerDayFilter')?.value || '1';
+
+        const tradeParams = new URLSearchParams({
+          direction: currentDirection,
+          delta: currentDelta,
+          indicator: currentIndicator,
+          session: currentSession,
+          timeframe: currentTimeframe,
+          symbol: 'BTC',
+          days: currentDays,
+          tradesPerDay: currentTradesPerDay
+        });
+
+        try {
+          // Show loading state
+          if (loadingIndicator) loadingIndicator.style.display = 'block';
+          if (showBtn) showBtn.disabled = true;
+
+          console.log('📊 Loading historical backtest trades...', tradeParams.toString());
+          const response = await fetch(`/api/backtest-trades?${tradeParams.toString()}`);
+          const data = await response.json();
+
+          if (data.trades && data.trades.length > 0) {
+            console.log(`✅ Loaded ${data.trades.length} historical trades:`, data.stats);
+            displayBacktestTrades(data.trades, data.stats);
+          } else {
+            console.log('ℹ️ No historical trades match the strategy filters');
+            // Show "no trades" message
+            const alertBanner = document.getElementById('strategyAlertBanner');
+            const alertStatus = document.getElementById('alertStatus');
+            const alertDetails = document.getElementById('alertDetails');
+            if (alertBanner) {
+              alertBanner.style.display = 'block';
+              alertStatus.innerHTML = '📊 <strong>NO TRADES FOUND</strong>';
+              alertStatus.style.color = '#999';
+              alertDetails.textContent = 'No trades match the current strategy filters';
+            }
+          }
+        } catch (err) {
+          console.error('❌ Failed to load backtest trades:', err);
+        } finally {
+          // Hide loading state
+          if (loadingIndicator) loadingIndicator.style.display = 'none';
+          if (showBtn) showBtn.disabled = false;
+        }
+      }
+
+      // Button click handler for Show Backtest Trades
+      const backtestBtn = document.getElementById('showBacktestBtn');
+      if (backtestBtn) {
+        backtestBtn.addEventListener('click', loadBacktestTrades);
+      }
+
+      // Display backtest trade markers on the chart
+      let backtestRetryCount = 0;
+      function displayBacktestTrades(trades, stats) {
+        // Wait for chart to be ready (max 10 seconds = 20 retries at 500ms)
+        if (!window.chart || !window.ChartManager) {
+          backtestRetryCount++;
+          if (backtestRetryCount > 20) {
+            console.error('❌ Timeout waiting for ChartManager after 10 seconds');
+            backtestRetryCount = 0;
+            return;
+          }
+          console.log('⏳ Waiting for ChartManager...', backtestRetryCount, '/20');
+          setTimeout(() => displayBacktestTrades(trades, stats), 500);
+          return;
+        }
+        backtestRetryCount = 0;
+
+        // Format trades as strategy events for displayStrategyMarkers
+        // Create both OPEN (entry) and CLOSE (exit) markers for each trade
+        const tradeEvents = [];
+        trades.forEach(trade => {
+          // Entry marker
+          tradeEvents.push({
+            event_id: `backtest-${trade.id}-entry`,
+            event_time: trade.entryTime,
+            position: 'OPEN',
+            event_data: {
+              signal_direction: trade.direction,
+              entry_price: trade.entryPrice,
+              pnl: trade.pnl
+            }
+          });
+          // Exit marker - include both dollar and percentage P&L for mode toggle
+          tradeEvents.push({
+            event_id: `backtest-${trade.id}-exit`,
+            event_time: trade.exitTime,
+            position: 'CLOSE',
+            event_data: {
+              signal_direction: trade.direction,
+              entry_price: trade.entryPrice,
+              current_price: trade.exitPrice,
+              pnl: trade.pnlTotal || trade.pnl,  // Dollar P&L with contracts (for IPC mode)
+              pnl_per_contract: trade.pnl,        // Dollar P&L per contract
+              pnl_percentage: trade.pnlPercent,   // Percentage P&L (for default mode)
+              close_reason: trade.closeReason || 'BACKTEST'
+            }
+          });
+        });
+
+        console.log('📊 Backtest: Created', tradeEvents.length, 'markers (entry + exit) for', trades.length, 'trades');
+
+        // Add markers to the chart
+        if (window.ChartManager.displayStrategyMarkers) {
+          window.ChartManager.displayStrategyMarkers(tradeEvents);
+          window.ChartManager.updateAllMarkers();
+        } else {
+          console.error('❌ displayStrategyMarkers not found on ChartManager');
+        }
+
+        // Store stats for mode toggle and show IPC mode toggle
+        lastBacktestStats = stats;
+        document.getElementById('ipcContractModeLabel').style.display = 'block';
+
+        // Show stats summary in banner
+        updateBacktestBanner(stats);
+      }
+
+      // Update backtest banner based on current mode
+      function updateBacktestBanner(stats) {
+        if (!stats) return;
+
+        const alertBanner = document.getElementById('strategyAlertBanner');
+        const alertStatus = document.getElementById('alertStatus');
+        const alertDetails = document.getElementById('alertDetails');
+
+        if (alertBanner && stats) {
+          alertBanner.style.display = 'block';
+          alertBanner.querySelector('div').style.background = 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)';
+          alertBanner.querySelector('div').style.borderColor = '#ff9500';
+
+          alertStatus.innerHTML = `📊 <strong>BACKTEST RESULTS</strong>`;
+          alertStatus.style.color = '#ff9500';
+
+          // Choose format based on IPC Contract Mode
+          let pnlFormatted;
+          let pnlValue;
+          if (ipcContractMode) {
+            // IPC Mode: Show dollar P&L with contracts
+            pnlValue = stats.totalPnL || 0;
+            pnlFormatted = pnlValue >= 0 ? `+$${pnlValue.toFixed(2)}` : `-$${Math.abs(pnlValue).toFixed(2)}`;
+          } else {
+            // Default: Show percentage P&L (per BTC)
+            pnlValue = stats.totalPnLPercent || 0;
+            pnlFormatted = pnlValue >= 0 ? `+${pnlValue.toFixed(2)}%` : `${pnlValue.toFixed(2)}%`;
+          }
+          const winColor = pnlValue >= 0 ? '#00ff88' : '#ff4444';
+          const modeLabel = ipcContractMode ? ' (IPC)' : '';
+          alertDetails.innerHTML = `
+            <span style="color: ${winColor}">${pnlFormatted} P&L${modeLabel}</span> |
+            ${stats.totalTrades} trades |
+            ${stats.winRate}% win rate
+          `;
+        }
+      }
+
+      // IPC Contract Mode toggle handler
+      document.getElementById('ipcContractModeToggle')?.addEventListener('change', (e) => {
+        ipcContractMode = e.target.checked;
+        window.ipcContractMode = ipcContractMode;  // Expose globally for ChartManager
+        console.log('🔄 IPC Contract Mode:', ipcContractMode ? 'ON ($ with contracts)' : 'OFF (% per BTC)');
+        if (lastBacktestStats) {
+          updateBacktestBanner(lastBacktestStats);
+        }
+        // Refresh markers if chart exists
+        if (window.ChartManager && window.ChartManager.updateAllMarkers) {
+          window.ChartManager.updateAllMarkers();
+        }
+      });
+      window.ipcContractMode = ipcContractMode;  // Initialize global
+
+      // ARM STRATEGY button handler
+      const armBtn = document.getElementById('armStrategyBtn');
+      const alertBanner = document.getElementById('strategyAlertBanner');
+      const alertStatus = document.getElementById('alertStatus');
+      const alertDetails = document.getElementById('alertDetails');
+
+      armBtn?.addEventListener('click', async () => {
+        strategyFilters.armed = !strategyFilters.armed;
+
+        if (strategyFilters.armed) {
+          // Read current filter values
+          strategyFilters.direction = document.getElementById('directionFilter').value;
+          strategyFilters.delta = parseInt(document.getElementById('deltaFilter').value);
+          strategyFilters.indicator = document.getElementById('indicatorFilter').value;
+          strategyFilters.session = document.getElementById('sessionFilter').value;
+
+          // Update UI - change banner to armed mode
+          armBtn.textContent = '🔴 DISARM';
+          armBtn.style.backgroundColor = '#dc3545';
+          armBtn.style.borderColor = '#dc3545';
+          alertBanner.style.display = 'block';
+          alertBanner.querySelector('div').style.borderColor = '#ff9500';
+          alertStatus.textContent = '⏳ WAITING FOR SIGNAL...';
+          alertStatus.style.color = '#ff9500';
+
+          // Build filter summary
+          const filterParts = [];
+          if (strategyFilters.direction !== 'ANY') filterParts.push(strategyFilters.direction);
+          filterParts.push('Δ>' + strategyFilters.delta);
+          if (strategyFilters.indicator !== 'ANY') filterParts.push(strategyFilters.indicator.replace('_', ' '));
+          if (strategyFilters.session !== 'ANY') filterParts.push(strategyFilters.session.replace('_', ' '));
+          const filterSummary = filterParts.join(' | ');
+
+          // Expose for WebSocket to check
+          window.strategyFilters = strategyFilters;
+          console.log('🎯 Strategy ARMED:', strategyFilters);
+
+          // Immediately show latest prediction info if available
+          try {
+            const indicators = window.IndicatorManager ? await window.IndicatorManager.getCurrentIndicators() : null;
+            const latestPred = window.latestPrediction;
+
+            console.log('🔍 Armed strategy - latestPrediction:', latestPred);
+            console.log('🔍 Armed strategy - indicators:', indicators);
+
+            if (latestPred) {
+              const predictionPrice = parseFloat(latestPred.prediction_price || 0);
+              const predictedPrice = parseFloat(latestPred.predicted_price || 0);
+              const delta = predictedPrice - predictionPrice;
+              const absDelta = Math.abs(delta);
+              const direction = delta > 0 ? 'LONG' : 'SHORT';
+
+              // Get time in NYC
+              const predTime = latestPred.prediction_time || latestPred.predicted_time;
+              let timeDisplay = '';
+              if (predTime) {
+                const nyDate = new Date(predTime);
+                const nyFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false });
+                timeDisplay = nyFormatter.format(nyDate) + ' NYC';
+              }
+
+              // Check indicator match
+              let indicatorStatus = '';
+              if (strategyFilters.indicator !== 'ANY' && indicators) {
+                const ind = strategyFilters.indicator;
+                let match = false;
+                let value = '';
+                if (ind.includes('MACD')) {
+                  match = ind === 'MACD_BULL' ? indicators.macdHistogram > 0 : indicators.macdHistogram < 0;
+                  value = `MACD: ${indicators.macdHistogram?.toFixed(1) || 'N/A'}`;
+                } else if (ind.includes('EMA')) {
+                  match = ind === 'EMA_BULL' ? indicators.ema9 > indicators.ema21 : indicators.ema9 < indicators.ema21;
+                  value = `EMA9: ${indicators.ema9?.toFixed(0)} vs EMA21: ${indicators.ema21?.toFixed(0)}`;
+                } else if (ind.includes('RSI')) {
+                  match = ind === 'RSI_OVERSOLD' ? indicators.rsi < 40 : indicators.rsi > 60;
+                  value = `RSI: ${indicators.rsi?.toFixed(1) || 'N/A'}`;
+                } else if (ind.includes('ADX')) {
+                  match = indicators.adx > 25;
+                  value = `ADX: ${indicators.adx?.toFixed(1) || 'N/A'}`;
+                }
+                const matchColor = match ? '#00ff88' : '#ff6b6b';
+                const matchIcon = match ? '✓' : '✗';
+                indicatorStatus = `<span style="color: ${matchColor}">${matchIcon} ${value}</span>`;
+              }
+
+              const deltaMatch = absDelta >= strategyFilters.delta;
+              const dirMatch = strategyFilters.direction === 'ANY' || strategyFilters.direction === direction;
+              const deltaColor = deltaMatch && dirMatch ? '#00ff88' : '#ff9500';
+              const dirColor = direction === 'LONG' ? '#00ff88' : '#ff4444';
+
+              alertDetails.innerHTML = `
+                <div style="margin-bottom: 4px; color: #888;">${filterSummary}</div>
+                <div style="font-size: 1.1em;">
+                  <span style="color: ${dirColor}; font-weight: bold;">${direction}</span>
+                  <span style="color: ${deltaColor}; margin-left: 8px;">Δ$${absDelta.toFixed(0)}</span>
+                  <span style="color: #888; margin-left: 8px;">${timeDisplay}</span>
+                </div>
+                ${indicatorStatus ? `<div style="margin-top: 4px;">${indicatorStatus}</div>` : ''}
+              `;
+            } else {
+              // No prediction yet, just show filter summary
+              alertDetails.innerHTML = `<div style="color: #888;">${filterSummary}</div><div style="margin-top: 4px; color: #666;">Waiting for prediction data...</div>`;
+            }
+          } catch (e) {
+            console.error('Error fetching initial armed info:', e);
+            alertDetails.textContent = filterSummary;
+          }
+
+        } else {
+          armBtn.textContent = '🎯 ARM STRATEGY';
+          armBtn.style.backgroundColor = '#ff9500';
+          armBtn.style.borderColor = '#ff9500';
+          alertBanner.style.display = 'none';
+          window.strategyFilters = null;
+          console.log('⏹️ Strategy DISARMED');
+        }
+      });
+
+      // Function to show signal alert (called from WebSocket when signal matches)
+      window.showSignalAlert = function(direction, delta, price, predictedPrice) {
+        if (!strategyFilters.armed) return;
+
+        // Play alert sound
+        try {
+          const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Onp+XgnBgdICSlJGGdmdrf4iUmZSKe29wg42YmpaPgXVwg46Yn5yUiH1yf4uWn6CWjIF0dISRmJ6fm5OFd3aGk5qgoZqQgXZ4h5acn6CbjX92eYqWnJ+gnZN/dHqKlpyfoJyTfnN7i5adoKCdk35ye4uWnqChno1+cnuLlp2goZ6MfXF8i5adoKGenIx9cH2Mlp6hoJyMfG5+jZaeoaGejH1ufY6XnqKhnYx8bn2OmJ6ioZ6LfG19jpien6GejHxsfZCYnqGhn4x8a32QmZ+hoZ+MfGp9kZmfoaGfjHxpfZKaoKKhn4x8aH2TmqCioKCMfGd9k5qgoqGfjHxmfZSaoKOhn4x7Zn2Um6GioaKLe2V9lJuhoqKhjHtlfZWboaKioox7ZH2Vm6GjoqKMe2R9lpuho6KhjHtjfZaboaOioYx7Yn2Wm6GjoqGNe2J8l5uho6KhjXtifJibomOioY17YXyYnKJjpKGNe2F8mJyiY6ShjXthfJicol9koY17YHyZnaNfZKGNel98mZ2jX2WhjXpffJqdo19loY16X3yanaNfZaGNel59mp2kXmWhjXpefZqdpF5moY16Xn2bnaReZqGNeV19m52kXmahjXldfZudpF1moY15XX2cnaRdZqGNeVx9nJ6kXWahjXlcfJ2epF1moY14XHydnqVcZ6GNeVt8nZ6lXGehj3hbfZ6epVxnoY54W32enqVcZ6KOeFt8np+lW2iij3hbe56fpVxoo456W3yfoKVcaKKPeFt7n6ClW2iijndae5+gpVtpoo93WnugoadaaaKPd1p6oKGnWmmij3dZeqChp1ppoo52WXqgoahaaaOPdll6oaGoWWqjj3VZeaGiqFhqo491WHmhoqhYa6OPdVh5oaOoWGukkHRYeaGjqFhrpJB0WHmio6hYa6SQdFd5oqOoV2ykkHRXeaKkqFZspJBzV3mipKhWbKSRc1d4oqSoVm2lkXNXeKOkqFZtpZFyVnijpalWbaWRclZ4o6WpVm2mkXJWeKOlqVVuppFyVnijpalVbqaRclV3pKapVW6mkXFVd6SmqVVvppFxVXekpqlUb6eRcVV3pKeoVG+nkXBUd6SnqFRvp5JwVHekp6lTcKeScFR2paeqU3CokXBUdqWnqlNwqJFvU3alpqtScKiSb1N2paerUnGokm9TdaWnq1FxqZJvUnWmp6xRcamSblJ1pqesUXKpkm5SdaanrFByqpJuUnWnp6xPcqqTblF1p6isT3KrkW5Rdaeoq09zqpNtUXWoqKxPc6uTbVB1qKisT3OrlG1Qdairq05zq5RsUHWoq6tOdKyUbFB0qausTnSslGxPdKmsrE50rJRrT3SprawNdK2Ua091qa6rDXWtlWtPdKqurA11rZVqTnSqr6sNda6Vak50qq+rDHaulWlOdKuvqwx2rpZpTXSrr6oMdq+WaU10rLCqDHavlmlNc6ywqgx3sJZoTHOssKkMd7CXaExzrLGpC3iwl2hMc6yxqQt4sZdnS3OtsagLeL+fmJVxaWNvg5KhnqCVhHNqcICQnJ6emZF/cm9/j5udnpmSfnJvf4+bnp+bk4Byb3+Pm56fn5SEcm9/kJyfn56Vg3Fuf4+cn6CflIJxbn6Pm5+goJSCcG5+j5ugn6CUgnBtfo6bn5+glIJwbX6Nm56foJWBcGx9jZuen6CVgXBsfY2bnp+glYFwa32Mm56foJWBb2t9jJuenqGWgW9qfIuanp6hl4Fuan2Lmp6eoZaAbmp8ipqenqGXgG5pfIqZnp2hmIBuaXyKmZ6doZiAbml8ipiend+YgG5pe4qYnZ3fmYBtaHuJmJ2d35mAbGh7iZidnN+ZgGxne4mXnZzfmoFsZ3uIl52c4JqAbGZ6iJednOCagGxmeoeXnZvgm4BrZnqHlpyb4JuAamV5h5acm+GbgGpleYaVnJrimoBqZXiGlZya4puAaWV4hpScmuObgGlkeIWUnJrjm4BoY3eFk5ua45yAaGN3hJOamuScgGdje4STmprknH9nYnaEkpqa5Jx/ZmJ1g5GZmeWcf2ZhdYORmZnlnH9mYHSDkJmY5Zx/Zl90g5CZmOadf2VfdIGPmJjmmn9lXnR/jpiX5pp+ZF1zf42Xl+aafmRcc36MlpfmmX1kW3N+jJWW5pl9Y1tyfoqVleabfWNbcX6KlJXmm3xjWnF9iZOU5pt8Ylpwe4iSlOebfGJZb3uIkZPnm3thWW56h5CT5pt7YVhueYaPkuibemFXbnmFjpHpmntgV215hI6R6Zl6YFZseYOMkOmZemBWa3iCi5DqmXlgVWt4gYqP6pl5X1VqdoGKjuqZeV5VaXaBiY3rmHleVGl2f4iM65h4XVRodX6Hi+uYd11TaHR+hou5lndfUmd0fYWKuZZ2XlFmc3yEibmVdV1RZnN7g4m5lXRdUGVyeoKIuZVzXE9kcnmBh7mUcltPZHF4gIa4lHFbTmNweH+GuJRxWk1icHZ+hbiUcFpNYW91fYS4k29ZTGFudHyDt5NuWExgbXN7graTbFhLX2xye4G2kmpXS15rcXqAtZJpV0team94f7WSaFZKXWlud362kWdWSVxobXZ+tpFmVUhcZ2x1fbWQZVRIW2ZrdH20kGRUSFtlam9ztJBjU0daZGlucbOPYlJHWWNobnCyj2FSQQ==');
+          audio.volume = 0.5;
+          audio.play();
+        } catch (e) { console.log('Audio alert failed:', e); }
+
+        // Update banner
+        alertStatus.innerHTML = '🚨 <strong>' + direction + ' SIGNAL!</strong>';
+        alertStatus.style.color = direction === 'LONG' ? '#00ff88' : '#ff4444';
+        alertDetails.innerHTML = 'Δ$' + Math.abs(delta).toFixed(0) + ' | Entry: $' + price.toFixed(0) + ' → $' + predictedPrice.toFixed(0);
+
+        // Flash effect
+        alertBanner.querySelector('div').style.animation = 'pulse 0.5s ease-in-out 3';
+        setTimeout(() => {
+          alertBanner.querySelector('div').style.animation = '';
+        }, 1500);
+      };
+
+      // ============================================
+      // AI CHART ANALYSIS BUTTON HANDLER
+      // ============================================
+      const aiAnalysisBtn = document.getElementById('aiAnalysisBtn');
+      const aiAnalysisStatus = document.getElementById('aiAnalysisStatus');
+
+      aiAnalysisBtn?.addEventListener('click', async () => {
+        if (!window.AIChartAnalysis) {
+          console.error('❌ AIChartAnalysis not loaded');
+          return;
+        }
+
+        // Show loading state
+        aiAnalysisBtn.disabled = true;
+        aiAnalysisBtn.textContent = '🔄 Analyzing...';
+        aiAnalysisStatus.style.display = 'block';
+        aiAnalysisStatus.textContent = 'Connecting to AI server...';
+
+        try {
+          // Request prediction from AI server
+          const result = await window.AIChartAnalysis.requestPredictionAsync();
+
+          if (result && result.success) {
+            aiAnalysisStatus.textContent = '✅ Analysis complete!';
+            aiAnalysisStatus.style.color = '#22c55e';
+            console.log('🦅 AI Analysis Result:', result.data);
+          } else {
+            aiAnalysisStatus.textContent = '⚠️ ' + (result?.error || 'Analysis failed');
+            aiAnalysisStatus.style.color = '#ff9500';
+          }
+        } catch (err) {
+          console.error('❌ AI Analysis error:', err);
+          aiAnalysisStatus.textContent = '❌ Error: ' + err.message;
+          aiAnalysisStatus.style.color = '#ef4444';
+        } finally {
+          // Reset button after 2 seconds
+          setTimeout(() => {
+            aiAnalysisBtn.disabled = false;
+            aiAnalysisBtn.textContent = '🤖 AI Analysis';
+            aiAnalysisStatus.style.display = 'none';
+            aiAnalysisStatus.style.color = '#999';
+          }, 2000);
+        }
+      });
+
+      // Add CSS for pulse animation
+      const style = document.createElement('style');
+      style.textContent = `
+        @keyframes pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(255, 149, 0, 0.7); }
+          50% { box-shadow: 0 0 20px 10px rgba(255, 149, 0, 0.5); }
+        }
+      `;
+      document.head.appendChild(style);
+    });
+  </script>
+
+  <!-- v2.3 Shadow Panel -->
+  <style>
+    #v23-toggle-btn {
+      position: fixed; top: 12px; right: 160px; z-index: 1001;
+      background: linear-gradient(135deg, #a855f7, #5b8def);
+      border: none; border-radius: 6px; color: white;
+      font-size: 10px; font-weight: bold; letter-spacing: 1px;
+      padding: 5px 10px; cursor: pointer; opacity: 0.9;
+    }
+    #v23-toggle-btn:hover { opacity: 1; }
+    #v23-wrapper {
+      position: fixed; top: 42px; right: 160px; z-index: 1000;
+      width: 200px; display: none;
+    }
+    #v23-prediction-panel {
+      background: rgba(10,10,20,0.95);
+      border: 1px solid rgba(168,85,247,0.25);
+      border-radius: 8px; padding: 10px 12px;
+      font-family: monospace; color: #e8ecf1; font-size: 11px;
+      box-shadow: 0 4px 20px rgba(168,85,247,0.2);
+    }
+  </style>
+  <button id="v23-toggle-btn">v2.3</button>
+  <div id="v23-wrapper">
+    <div id="v23-prediction-panel">
+      <div style="color:#666;font-size:10px;">Waiting for v2.3 data...</div>
+    </div>
+  </div>
+  <script>
+    document.getElementById("v23-toggle-btn").addEventListener("click", function() {
+      var w = document.getElementById("v23-wrapper");
+      w.style.display = (w.style.display === "block") ? "none" : "block";
+    });
+  </script>
+
+</body>
+</html>
